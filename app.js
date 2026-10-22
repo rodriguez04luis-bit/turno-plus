@@ -23,12 +23,36 @@ function toast(s){$('toast').textContent=s;$('toast').style.display='block';clea
 function changeView(id){document.querySelectorAll('.view').forEach(el=>el.classList.toggle('active',el.id===id));document.querySelectorAll('[data-view]').forEach(el=>el.classList.toggle('active',el.dataset.view===id));window.scrollTo(0,0);render()}
 document.querySelectorAll('[data-view]').forEach(el=>el.addEventListener('click',()=>changeView(el.dataset.view)));
 $('openSchedule').onclick=$('goWeek').onclick=()=>changeView('schedule');
-const digits=s=>s.match(/\b\d{1,2}[:.]\d{2}\b/);
-function extract(raw){let t=raw.trim().replace(/^(recu[eé]rdame( que)?|tengo que|necesito|m[aá]s tarde|hoy|ma[ñn]ana|por favor|hacer( estas)? (tres|3|dos|2|varias) (cosas|tareas|pendientes)( importantes)?( del trabajo)?[: ]*)[\s,:-]*/i,'');let parts=t.split(/\s*(?:\n|;|\s*\d+[.)]\s*|,\s*(?=(?:llamar|contestar|responder|organizar|hacer|revisar|enviar|horarios)\b)|\s+y\s+(?=(?:llamar|contestar|responder|organizar|hacer|revisar|enviar)\b))\s*/i).filter(Boolean);return parts.length?parts:[raw]}
-function addTasks(text,category='Trabajo',date=''){const parts=extract(text).map(x=>x.trim()).filter(Boolean);if(!parts.length){toast('Escribe primero una tarea');return}for(const p of parts)data.tasks.unshift({id:crypto.randomUUID?.()||`${Date.now()}-${Math.random()}`,text:p,category,date,done:false});save();render();toast(`${parts.length} pendiente(s) guardado(s)`)}
-$('addQuick').onclick=()=>{addTasks($('quick').value);$('quick').value=''};
+function getDateAndTime(raw){
+  const now=new Date();let date='',time='';
+  let low=raw.toLocaleLowerCase('es-CO');
+  if(/\bpasado\s+ma[ñn]ana\b/i.test(low))now.setDate(now.getDate()+2);
+  else if(/\bma[ñn]ana\b/i.test(low))now.setDate(now.getDate()+1);
+  else if(!/\bhoy\b/i.test(low))now.setTime(NaN);
+  if(!Number.isNaN(now.getTime()))date=isoLocal(now);
+  const m=low.match(/\b(?:a\s+las?\s+)?(\d{1,2})(?:[:.](\d{2}))?\s*(?:de\s+la\s+)?(ma[ñn]ana|tarde|noche|a\.?\s*m\.?|p\.?\s*m\.?)\b/i);
+  if(m){let hr=Number(m[1]),min=Number(m[2]||0),part=m[3];if(hr<=12&&min<60){if(/tarde|noche|p\.?\s*m/i.test(part)&&hr<12)hr+=12;if(/ma[ñn]ana|a\.?\s*m/i.test(part)&&hr===12)hr=0;time=`${String(hr).padStart(2,'0')}:${String(min).padStart(2,'0')}`}}
+  return {date,time};
+}
+function extract(raw){
+  let t=raw.trim().replace(/^(?:oye[, ]+|mira[, ]+|por\s+favor[, ]+)?/i,'').replace(/^(?:recu[eé]rdame(?:\s+que)?|tengo\s+que|necesito|debo|quiero\s+recordar)\s*/i,'');
+  t=t.replace(/^(?:hacer\s+)?(?:estas?\s+)?(?:tres|3|dos|2|varias)\s+(?:cosas|tareas|pendientes)(?:\s+importantes)?(?:\s+del\s+trabajo)?\s*[:,-]?\s*/i,'');
+  let parts=t.split(/\s*(?:\n+|;|\s+\d+[.)]\s*|,\s*(?=(?:llamar|contestar|responder|organizar|hacer|revisar|enviar|preparar|horarios)\b)|\s+y\s+(?=(?:llamar|contestar|responder|organizar|hacer|revisar|enviar|preparar)\b))\s*/i).map(x=>x.trim()).filter(Boolean);
+  return parts.length?parts:[raw.trim()];
+}
+function addTasks(text,category='Trabajo',date=''){
+  if(!text.trim()){toast('Escribe primero una tarea');return false}
+  const parts=extract(text), parsed=getDateAndTime(text);
+  const type=/\b(mi pap[aá]|mi mam[aá]|familia|personal|casa|m[eé]dico)\b/i.test(text)?'Personal':category;
+  for(const p of parts){
+    data.tasks.unshift({id:crypto.randomUUID?.()||`${Date.now()}-${Math.random()}`,text:p,category:type,date:date||parsed.date,time:parsed.time,done:false});
+  }
+  save();render();toast(`${parts.length} pendiente(s) guardado(s)${parsed.date?' · '+parsed.date:''}${parsed.time?' · '+parsed.time:''}`);
+  return true;
+}
+$('addQuick').onclick=()=>{if(addTasks($('quick').value)){$('quick').value='';changeView('tasks')}};
 $('addTask').onclick=()=>{addTasks($('taskName').value,$('taskCategory').value,$('taskDate').value);$('taskName').value=''};
-function taskHTML(t){return `<div class="task ${t.done?'done':''}"><input aria-label="Marcar tarea" type="checkbox" data-task-check="${safe(t.id)}" ${t.done?'checked':''}><span>${safe(t.text)}<br><small class="muted">${safe(t.category)}${t.date?' · '+safe(t.date):''}</small></span><button class="iconbtn" data-task-del="${safe(t.id)}" aria-label="Eliminar">×</button></div>`}
+function taskHTML(t){return `<div class="task ${t.done?'done':''}"><input aria-label="Marcar tarea" type="checkbox" data-task-check="${safe(t.id)}" ${t.done?'checked':''}><span>${safe(t.text)}<br><small class="muted">${safe(t.category)}${t.date?' · '+safe(t.date):''}${t.time?' · '+safe(t.time):''}</small></span><button class="iconbtn" data-task-del="${safe(t.id)}" aria-label="Eliminar">×</button></div>`}
 function renderTasks(){const pending=data.tasks.filter(t=>!t.done);$('nPending').textContent=pending.length;$('taskCount').textContent=`${pending.length} por hacer`;$('homeTasks').innerHTML=pending.slice(0,5).map(taskHTML).join('')||'<div class="empty">No tienes pendientes.</div>';$('taskList').innerHTML=data.tasks.map(taskHTML).join('')||'<div class="empty">Agrega tu primera tarea.</div>'}
 document.body.addEventListener('change',e=>{let id=e.target.dataset.taskCheck;if(id){let t=data.tasks.find(t=>t.id===id);if(t){t.done=e.target.checked;save();render()}}});document.body.addEventListener('click',e=>{let id=e.target.dataset.taskDel;if(id){data.tasks=data.tasks.filter(t=>t.id!==id);save();render()}});
 function ensureWeek(){let key=isoLocal(week);if(!data.weeks[key])data.weeks[key]=Object.fromEntries(names.map((_,i)=>[String(i),Array(7).fill(null)]));return data.weeks[key]}
